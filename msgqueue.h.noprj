@@ -1,0 +1,30 @@
+#ifndef MSGQUEUE_H
+#define MSGQUEUE_H
+
+#include "payload.h"
+#include <list>
+#include <memory>
+#include <mutex>
+
+using namespace std;
+class msgqueue
+{
+public:
+    msgqueue();
+
+    void add(const shared_ptr<Payload>& Pl);
+    void add(const Payload& Pl);
+    void add(Payload&& Pl);
+
+    shared_ptr<Payload> peek();
+    shared_ptr<Payload> get();
+
+
+private:
+    list<shared_ptr<Payload>> _queue;
+    mutex _mutex;
+
+
+};
+
+#endif // MSGQUEUE_H

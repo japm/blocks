@@ -1,0 +1,38 @@
+#include "msgqueue.h"
+
+msgqueue::msgqueue() : _queue()
+{
+}
+
+void msgqueue::add(const shared_ptr<Payload> &Pl)
+{
+    lock_guard<mutex> lock(_mutex);
+    _queue.push_back(Pl);
+}
+
+void msgqueue::add(const Payload &Pl)
+{
+    this->add(make_shared<Payload>(Pl));
+}
+
+void msgqueue::add(Payload&& Pl)
+{
+    this->add(make_shared<Payload>(std::move(Pl)));
+}
+
+shared_ptr<Payload> msgqueue::peek()
+{
+    lock_guard<mutex> lock(_mutex);
+    return _queue.front();
+}
+
+shared_ptr<Payload> msgqueue::get()
+{
+    lock_guard<mutex> lock(_mutex);
+    if (_queue.empty())
+        return shared_ptr<Payload>(NULL);
+
+    auto test = _queue.front();
+    _queue.pop_front();
+    return test;
+}
