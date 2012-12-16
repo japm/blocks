@@ -35,21 +35,20 @@ function<void (shared_ptr<string>)> f = [](shared_ptr<string> s){ std::cout << *
 
 //Dispatcher<string> q(0, 30, false, 0, f);
 //Dispatcher<string> q(4, 30, false, 0, f);
-Dispatcher<string> q(4, 0, false, 0, f);
+Dispatcher<string> q(4, 0, false, 128, f);
 //Dispatcher<string> q(4, 0, true, 0, f);
 //Dispatcher<string> q(4, 8, true, 10, f);
 //Dispatcher<string> q(0, 7, true, 1, f);
 
 void producer(){
     std::chrono::milliseconds dura(0);
-    string s("load\n");
+    string s("load");
     auto shs = std::make_shared<string>(s);
-    long long a = 0;
     for(int i = 0; i < 10000; i++){
         //auto shs = std::make_shared<string>(string_format("%s%d\n",s.c_str() ,a++));
-        //auto shs = std::make_shared<string>(s + to_string(a++) + "\n");
+        //auto shs = std::make_shared<string>(s + to_string(i) + "\n");
         q.Dispatch(shs);
-        if ((a % 10) == 0)
+        if ((i % 100) == 0)
             std::this_thread::sleep_for( dura );
 
     }
@@ -58,6 +57,7 @@ void producer(){
 int main() {
     producer();
     //auto thrp = std::thread(producer);
-    //q.WaitUntilFinish();
+    q.Stop();
+    q.WaitUntilFinish();
 
 }

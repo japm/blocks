@@ -55,11 +55,14 @@ public:
 
     void WaitUntilFinish();
 
+    void Stop();
+
 
 private:
 
     vector<SharedWorker>         _workers;
-    list<SharedWorker>           _freeWorkers;
+    vector<SharedWorker>         _freeWorkers;
+    unsigned int                 _freeWorkersIdx;
     unsigned int                 _threadsInPool;
     unsigned int                 _maxThreads;
     unsigned int                 _actualThreads;
@@ -94,14 +97,20 @@ Dispatcher<T>::Dispatcher(unsigned int ThreadsInPool, unsigned int MaxThreads,
     if (_threadsInPool){
 
         _workers.reserve(_threadsInPool);
+        _freeWorkers.reserve(_threadsInPool);
+        _freeWorkersIdx = _threadsInPool;
 
-        for(unsigned int i=0;i<ThreadsInPool;i++){
+        for(unsigned int i=0;i<_threadsInPool;i++){
             auto wk = std::make_shared<worker>(worker(to_string(i)));
             _workers.push_back( std::move(wk));
         }
 
-        for(auto wk = _workers.begin(); wk != _workers.end(); wk++)
-            _freeWorkers.push_back(*wk);
+        //for(auto wk = _workers.begin(); wk != _workers.end(); wk++)
+        //    _freeWorkers.push_back(*wk);
+
+        for(unsigned int i=0;i<_threadsInPool;i++){
+            _freeWorkers[i] = _workers[i];
+        }
 
         for(auto wk = _workers.begin(); wk != _workers.end(); wk++)
             wk->get()->start(*wk);
@@ -119,9 +128,8 @@ void Dispatcher<T>::Dispatch(HolderType spt)
 
         while (true) {
             //If someone is ready, give it to him
-            if (!_freeWorkers.empty()){
-                w = _freeWorkers.front();
-                _freeWorkers.pop_front();
+            if (_freeWorkersIdx > 0){
+                w = std::move(_freeWorkers[--_freeWorkersIdx]);
                 break;
             //If i can dispatch a new thread do it
             }else if (_actualThreads < _maxThreads){
@@ -181,7 +189,7 @@ void Dispatcher<T>::WorkerDone(SharedWorker w)
 
         } else {
             //Report a free worker
-            _freeWorkers.push_back(std::move(w));
+            _freeWorkers[_freeWorkersIdx++] = std::move(w);
         }
     }
     //Found something in the queue to process
@@ -226,5 +234,14 @@ void Dispatcher<T>::WaitUntilFinish()
     for(auto wk = _workers.begin(); wk != _workers.end(); wk++)
         wk->get()->WaitUntilFinish();
 }
+
+template<class T>
+void Dispatcher<T>::Stop()
+{
+    for(auto wk = _workers.begin(); wk != _workers.end(); wk++){
+        wk->get()->stop();
+    }
+}
+
 
 #endif // DISPATCHER_H

@@ -39,7 +39,6 @@ void worker::runOnce()
             _cvarReady.wait(lock);
 
         localTask = std::move(_task);
-        _task = nullptr;
     }
 
     if (_stop)
@@ -62,6 +61,10 @@ void worker::start(shared_ptr<worker> w)
 void worker::stop()
 {
     _stop = true;
+    unique_lock<mutex> lock(_mutex);
+    _task = nullptr;
+    _cvarReady.notify_one();
+
 }
 
 
