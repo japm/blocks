@@ -42,8 +42,8 @@ class Dispatcher
 {
 public:
 
-    typedef shared_ptr<T>       HolderType;
-    typedef shared_ptr<worker>  SharedWorker;
+    typedef shared_ptr<T>               HolderType;
+    typedef shared_ptr<worker>          SharedWorker;
     typedef shared_ptr<workerLockless>  SharedWorkerLockless;
 
     Dispatcher(unsigned int ThreadsInPool, unsigned int MaxThreads, bool RunOnThisThread, unsigned int QueueSize, function<void (HolderType)> Fn);
@@ -55,7 +55,7 @@ public:
 
     void WaitUntilFinish();
 
-    void Stop();
+    void Stop(bool Force);
 
 
 private:
@@ -76,6 +76,7 @@ private:
     vector<HolderType>           _buffer;
     unsigned int                 _first;
     unsigned int                 _last;
+    bool                         _stop;
 };
 
 
@@ -85,14 +86,13 @@ Dispatcher<T>::Dispatcher(unsigned int ThreadsInPool, unsigned int MaxThreads,
                           bool RunOnThisThread, unsigned int QueueSize,
                           function<void (HolderType)> Fn) :_workers(), _freeWorkers(), _mutex(), _funct(Fn),
     _buffer(), _maxThreads(MaxThreads), _actualThreads(ThreadsInPool), _workerEnd(), _runOnThisThread(RunOnThisThread),
-    _queueSize(QueueSize == 1 ? 2 : QueueSize), _threadsInPool(ThreadsInPool)
+    _queueSize(QueueSize == 1 ? 2 : QueueSize), _threadsInPool(ThreadsInPool), _waiting(0),
+    _first(0), _last(0),_stop(false)
 {
-    _waiting = 0;
-    _funct = Fn;
+
     if (_queueSize)
         _buffer.reserve(_queueSize);
-    _first = 0;
-    _last  = 0;
+
 
     if (_threadsInPool){
 
@@ -104,9 +104,6 @@ Dispatcher<T>::Dispatcher(unsigned int ThreadsInPool, unsigned int MaxThreads,
             auto wk = std::make_shared<worker>(worker(to_string(i)));
             _workers.push_back( std::move(wk));
         }
-
-        //for(auto wk = _workers.begin(); wk != _workers.end(); wk++)
-        //    _freeWorkers.push_back(*wk);
 
         for(unsigned int i=0;i<_threadsInPool;i++){
             _freeWorkers[i] = _workers[i];
@@ -120,6 +117,10 @@ Dispatcher<T>::Dispatcher(unsigned int ThreadsInPool, unsigned int MaxThreads,
 template<class T>
 void Dispatcher<T>::Dispatch(HolderType spt)
 {
+    //if stopped dont accept more items to dispatch
+    if (_stop)
+        return;
+
     bool runInANewThread = false;
     SharedWorker w = nullptr;
 
@@ -185,17 +186,19 @@ void Dispatcher<T>::WorkerDone(SharedWorker w)
             if(_last == _queueSize)
                 _last = 0;
             if (_waiting)
-                _workerEnd.notify_one(); //A free slot is ready
+                _workerEnd.notify_one(); //A free slot is ready and someone is waiting
 
-        } else {
-            //Report a free worker
-            _freeWorkers[_freeWorkersIdx++] = std::move(w);
+        } else if (!_stop){
+            //Report a free worker if not stopped
+           _freeWorkers[_freeWorkersIdx++] = std::move(w);
         }
     }
     //Found something in the queue to process
     if (spt != nullptr){
         function<void ()> task = [w, this, spt](){this->_funct(spt); this->WorkerDone(w);};
         w->Process(std::move(task));
+    } else if (_stop && w != nullptr){ //If stopped and there is a w then the queue is empty and we can stop this thread
+        w->stop();
     }
 }
 
@@ -231,15 +234,24 @@ void Dispatcher<T>::WorkerNoPoolDone(SharedWorkerLockless w)
 template<class T>
 void Dispatcher<T>::WaitUntilFinish()
 {
+    std::chrono::milliseconds dura(50);
+    //Threads in pool
     for(auto wk = _workers.begin(); wk != _workers.end(); wk++)
         wk->get()->WaitUntilFinish();
+    //Active threads
+    for(;_actualThreads > _threadsInPool; )
+        std::this_thread::sleep_for( dura );
 }
 
 template<class T>
-void Dispatcher<T>::Stop()
+void Dispatcher<T>::Stop(bool Force)
 {
-    for(auto wk = _workers.begin(); wk != _workers.end(); wk++){
-        wk->get()->stop();
+    _stop = true;
+
+    if (Force){
+        for(auto wk = _workers.begin(); wk != _workers.end(); wk++){
+            wk->get()->stop();
+        }
     }
 }
 
